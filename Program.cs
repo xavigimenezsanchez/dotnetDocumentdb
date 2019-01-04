@@ -51,8 +51,10 @@ namespace dotnetDocumentdb
                         //runDemo1().Wait();
                     
                     /* Manual indexing at collection level */
-                        runDemo2().Wait();
-            }
+                        //runDemo2().Wait();
+                    /* Exclude paths from index */
+                        runDemo3().Wait();
+            }   
         }
 #region Data_Import_Scenarios
         static async Task<ResourceResponse<Database>> createDatabase() 
@@ -389,13 +391,91 @@ namespace dotnetDocumentdb
                                 {
                                     IndexingDirective = IndexingDirective.Include
                                 });
-        /* docExists are going to set to true due to IndexingDirective = IndexingDirective.Include*/
+        /* docExists are going to set to true due to IndexingDirective = IndexingDirective.Include */
         docExists = client.CreateDocumentQuery(
                     collection.Resource.SelfLink,
                     "Select * from root r where r.company = 'Microsoft'"
                 ).AsEnumerable().Any();
 
         await client.DeleteDocumentCollectionAsync(collectionUrl);
+    }
+
+    /* Exclude paths from index */
+    private static async Task runDemo3() 
+    {
+        var database = await client.CreateDatabaseIfNotExistsAsync( 
+                                    new Database { Id = databaseId } );
+
+        var collectionUri = UriFactory.CreateDocumentCollectionUri(databaseId, collectionId);
+
+        try  //For demo purposes
+        {
+            await client.DeleteDocumentCollectionAsync(collectionUri);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
+
+        dynamic document = new
+            {
+                id = "900",
+                name = "Chander",
+                company = new { name = "Cazton", addres = new { city = "Austin", state="Texas"}},
+                address = new {
+                    mailingAddress = new { ConsistencyLevel="Seattle", state = "Washington"},
+                    shippingAddress = new { ConsistencyLevel="Los Angeles", state = "California"}
+                },
+                notes = new { awards = "MicrosoftMVP", title="CEO"}
+            };
+
+        var collectionDefinition = new DocumentCollection
+                {
+                    Id = collectionId
+                };
+        collectionDefinition.IndexingPolicy.IncludedPaths.Add(
+                new IncludedPath { Path = "/*" });
+        collectionDefinition.IndexingPolicy.ExcludedPaths.Add(
+                new ExcludedPath { Path = "/company/*" });
+        // collectionDefinition.IndexingPolicy.ExcludedPaths.Add(
+        //         new ExcludedPath { Path = "/\"company\"/*" });
+        collectionDefinition.IndexingPolicy.ExcludedPaths.Add(
+                new ExcludedPath { Path = "/address/mailingAddress/*" });
+
+        var collection = await client.CreateDocumentCollectionIfNotExistsAsync(
+                    UriFactory.CreateDatabaseUri(databaseId),
+                    collectionDefinition);
+        Document created = await client.CreateDocumentAsync(collection.Resource.SelfLink, document);
+
+        try
+        {
+        /* return records */
+        var result = client.CreateDocumentQuery( collection.Resource.SelfLink,
+                    "Select * from root r where r.name='Chander'").AsEnumerable().Any();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
+        try
+        {
+        /* Error:  An invalid query has been specified with filters against path(s) excluded from indexing*/
+        var result = client.CreateDocumentQuery( collection.Resource.SelfLink,
+                    "Select * from root r where r.company.name='Catzon'").AsEnumerable().Any();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
+
+        try  //For demo purposes
+        {
+            await client.DeleteDocumentCollectionAsync(collectionUri);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
     }
 #endregion Indexing
     }
