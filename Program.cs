@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -8,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft. Azure.Documents.Client;
 using Microsoft.Azure.Documents;
+
 
 
 namespace dotnetDocumentdb
@@ -55,7 +57,9 @@ namespace dotnetDocumentdb
                     /* Exclude paths from index */
                         //runDemo3().Wait();
                     /* Force range scan on a hash index */
-                        runDemo4().Wait();
+                        //runDemo4().Wait();
+                    /* Range indexing on strings */
+                        runDemo5().Wait();
             }   
         }
 #region Data_Import_Scenarios
@@ -555,6 +559,87 @@ namespace dotnetDocumentdb
         }
 
     }
+
+    /* Range indexing on strings */
+        private static async Task runDemo5() 
+    {
+        var database = await client.CreateDatabaseIfNotExistsAsync( 
+                                    new Database { Id = databaseId } );
+
+        var collectionUri = UriFactory.CreateDocumentCollectionUri(databaseId, collectionId);
+
+        try  //For demo purposes
+        {
+            await client.DeleteDocumentCollectionAsync(collectionUri);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
+        var collectionDefinition = new DocumentCollection
+                {
+                    Id = collectionId
+                };
+        
+        IndexingPolicy indexingPolicy = new IndexingPolicy();
+        //     new RangeIndex(DataType.String) {
+        //         Precision = -1
+        //     }
+        // );
+
+        indexingPolicy.IncludedPaths.Add(new IncludedPath { Path = "/*" });
+        indexingPolicy.IncludedPaths.Add(new IncludedPath 
+                {   Path = "/state/?", 
+                    Indexes = new Collection<Index>()
+                        {
+                            new RangeIndex(DataType.String)
+                                {
+                                    Precision = -1
+                                }
+                        }
+                });
+        collectionDefinition.IndexingPolicy = indexingPolicy;
+        
+        var collection = await client.CreateDocumentCollectionIfNotExistsAsync(
+                    UriFactory.CreateDatabaseUri(databaseId),
+                    collectionDefinition);
+
+        var alison = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "1", employee_name="Alison", age=25, salary= 200000, city="Irvine", state = "CA" });
+        
+        var ben = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "2", employee_name="Ben", age=30, salary= 100000, city="San Jose", state = "CA" });
+        var krishna = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "3", employee_name="Krishna", age=35, salary= 150000, city="Irvine", state = "CA" });
+        var kevin = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "4", employee_name="Kevin", age=40, salary= 300000, city="LA", state = "CA" });
+        var jacob = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "5", employee_name="Jacob", age=45, salary= 250000, city="Austin", state = "TX" });
+        var sana = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "6", employee_name="Sana", age=50, salary= 50000, city="Dallas", state = "TX" });
+
+        try
+        {
+            var results = client.CreateDocumentQuery( collection.Resource.SelfLink,
+                    "Select * from root r where r.state >= 'D'").AsEnumerable();
+            
+            foreach (var result in results)
+            {
+                Console.WriteLine(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message.ToString());
+        }
+    }
+
 #endregion Indexing
     }
 }
