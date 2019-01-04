@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Microsoft. Azure.Documents.Client;
 using Microsoft.Azure.Documents;
 
-//https://www.lynda.com/Azure-tutorials/Change-collection-performance/612187/649533-4.html?srchtrk=index%3a11%0alinktypeid%3a2%0aq%3acosmos%0apage%3a1%0as%3arelevance%0asa%3atrue%0aproducttypeid%3a2
 
 namespace dotnetDocumentdb
 {
@@ -20,15 +19,24 @@ namespace dotnetDocumentdb
         static void Main(string[] args)
         {
             using(client = new DocumentClient(new Uri(endpointUrl), authorizationKey)) {
-                //createDatabase().Wait();
-                //createPartitionedCollectionWithCustomIndexing("Xavi", "Test", @"/category_code").Wait();
-                // { id: "123", category_code: "AS", address: {city: "Los Angeles"}}
-                //changeCollectionPerformance("Xavi", "Test").Wait();
-                //AddTypedDocuemntsFromFile("Xavi", "Test");
-                AddJsonFromFile("Xavi", "Company", "companies.json");
+                /*
+                    First steps with cosmos DB
+                 */
+                    //createDatabase().Wait();
+                    //createPartitionedCollectionWithCustomIndexing("Xavi", "Test", @"/category_code").Wait();
+                    // { id: "123", category_code: "AS", address: {city: "Los Angeles"}}
+                    //changeCollectionPerformance("Xavi", "Test").Wait();
+                    //AddTypedDocuemntsFromFile("Xavi", "Test");
+                    //AddJsonFromFile("Xavi", "Company", "companies.json");
+                /*
+                    Data Manipulation
+                 */
+                    /* Simple stored procedure query */
+                        QueryWithStoredProcs("Xavi", "Company", @"./Scripts/SimpleQuery.js").Wait();
+
             }
         }
-
+#region Data_Import_Scenarios
         static async Task<ResourceResponse<Database>> createDatabase() 
         {
             var response = await client.CreateDatabaseIfNotExistsAsync(new Microsoft.Azure.Documents.Database { Id = "Xavi"});
@@ -110,7 +118,7 @@ namespace dotnetDocumentdb
             return document;
         }
 
-        static async void AddJsonFromFile(string databaseId, string collectionId, string filePath)
+        static void AddJsonFromFile(string databaseId, string collectionId, string filePath)
         {
             using (StreamReader file = new StreamReader(filePath))
             {
@@ -131,5 +139,35 @@ namespace dotnetDocumentdb
             Document document = await client.CreateDocumentAsync(collection.Resource.SelfLink, Resource.LoadFrom<Document>(stream));
             return document;
         }
+
+#endregion Data_Import_Scenarios
+
+        #region Data_Manipulation
+        static async Task QueryWithStoredProcs(string databaseId, string collectionId, string scriptPath)
+        {
+            var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(databaseId, collectionId));
+
+            string scriptId = Path.GetFileNameWithoutExtension(scriptPath);
+
+            var storedProcedure = new StoredProcedure 
+            {
+                Id = scriptId,
+                Body = File.ReadAllText(scriptPath)
+            };
+
+            StoredProcedure procedure = client.CreateStoredProcedureQuery(collection.Resource.SelfLink).Where(x => x.Id == storedProcedure.Id).AsEnumerable().FirstOrDefault();
+            if (procedure != null)
+            {
+                await client.DeleteStoredProcedureAsync(procedure.SelfLink);
+            }
+
+            storedProcedure = await client.CreateStoredProcedureAsync(collection.Resource.SelfLink, storedProcedure);
+
+            var response = await client.ExecuteStoredProcedureAsync<string>(storedProcedure.SelfLink, 
+                                                                            new RequestOptions { PartitionKey = new PartitionKey("web")},
+                                                                            " where r.name= 'Wetpaint'");
+            Console.WriteLine("The response is {0}", response.Response);
+        }
+        #endregion Data_Manipulation
     }
 }
