@@ -2,6 +2,7 @@
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -32,8 +33,12 @@ namespace dotnetDocumentdb
                     Data Manipulation
                  */
                     /* Simple stored procedure query */
-                        QueryWithStoredProcs("Xavi", "Company", @"./Scripts/SimpleQuery.js").Wait();
-
+                        //QueryWithStoredProcs("Xavi", "Company", @"./Scripts/SimpleQuery.js").Wait();
+                    
+                    /*Import documents with stored procedure */
+                        //ImportDocument("Xavi", "Company", @"./Scripts/ImportDocument.js").Wait();
+                    /* User-defined functions */
+                        getTotalFunding("TotalFunding", "Xavi", "Company").Wait();
             }
         }
 #region Data_Import_Scenarios
@@ -143,6 +148,10 @@ namespace dotnetDocumentdb
 #endregion Data_Import_Scenarios
 
         #region Data_Manipulation
+
+        /*
+            Simple stored procedure query
+         */
         static async Task QueryWithStoredProcs(string databaseId, string collectionId, string scriptPath)
         {
             var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(databaseId, collectionId));
@@ -167,6 +176,74 @@ namespace dotnetDocumentdb
                                                                             new RequestOptions { PartitionKey = new PartitionKey("web")},
                                                                             " where r.name= 'Wetpaint'");
             Console.WriteLine("The response is {0}", response.Response);
+        }
+
+        /*
+            Import documents with stored procedure
+         */
+
+        static async Task ImportDocument(string databaseId, string collectionId, string scriptPath)
+        {
+            var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(databaseId, collectionId));
+
+            var selfLink = collection.Resource.SelfLink;
+
+            string scriptId = Path.GetFileNameWithoutExtension(scriptPath);
+
+            var storedProcedure = new StoredProcedure 
+            {
+                Id = scriptId,
+                Body = File.ReadAllText(scriptPath)
+            };
+
+            StoredProcedure procedure = client.CreateStoredProcedureQuery(collection.Resource.SelfLink).Where(x => x.Id == storedProcedure.Id).AsEnumerable().FirstOrDefault();
+            if (procedure != null)
+            {
+                await client.DeleteStoredProcedureAsync(procedure.SelfLink);
+            }
+
+            storedProcedure = await client.CreateStoredProcedureAsync(collection.Resource.SelfLink, storedProcedure);
+
+            string testJson = File.ReadAllText(@".\Data\test.json");
+            var parameters = new dynamic[] { JsonConvert.DeserializeObject<dynamic>(testJson)};
+
+            var response = await client.ExecuteStoredProcedureAsync<string>(storedProcedure.SelfLink, 
+                                                                            new RequestOptions { PartitionKey = new PartitionKey("advertising")},
+                                                                            parameters);
+            Console.WriteLine("The response is {0}", response.Response);
+        }
+        /* User-defined functions */
+        static async Task getTotalFunding(string udfId, string databaseId, string collectionId)
+        {
+            var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(databaseId, collectionId));
+
+            var collectionSelfLink = collection.Resource.SelfLink;
+
+            var udfFileName = string.Format(@"Scripts\{0}.js", udfId);
+            var udf = new UserDefinedFunction 
+                            {
+                                Id = udfId,
+                                Body = File.ReadAllText(udfFileName)
+                            };
+            await tryDeleteUDF(collectionSelfLink, udf.Id);
+
+            await client.CreateUserDefinedFunctionAsync(collectionSelfLink, udf);
+            var results = client.CreateDocumentQuery<dynamic>(collectionSelfLink, 
+                            "Select r.name as Name, udf.TotalFunding(r) as TotalFunding from root r where r.name='Cisco'",
+                            new FeedOptions { EnableCrossPartitionQuery = true});
+            foreach (var result in results) {
+                Console.WriteLine("The result is {0}", result);
+            }
+        }
+
+        private static async Task tryDeleteUDF(string collectionSelfLink, string udfId)
+        {
+            UserDefinedFunction udf = client.CreateUserDefinedFunctionQuery(collectionSelfLink).Where(x => x.Id == udfId).AsEnumerable().FirstOrDefault();
+
+            if (udf != null) 
+            {
+                await client.DeleteUserDefinedFunctionAsync(udf.SelfLink);
+            }
         }
         #endregion Data_Manipulation
     }
