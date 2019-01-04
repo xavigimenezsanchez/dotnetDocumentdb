@@ -14,6 +14,8 @@ namespace dotnetDocumentdb
 {
     class Program
     {
+        static readonly string databaseId = "Xavi";
+        static readonly string collectionId = "Dhall";
         static readonly string endpointUrl = "https://localhost:8081";
         static readonly string authorizationKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
         static DocumentClient client;
@@ -40,7 +42,16 @@ namespace dotnetDocumentdb
                     /* User-defined functions */
                         //getTotalFunding("TotalFunding", "Xavi", "Company").Wait();
                     /* Triggers */
-                        addCreatedData("Xavi", "Company").Wait();
+                        //addCreatedData("Xavi", "Company").Wait();
+
+                /*
+                    Indexing
+                 */
+                    /* Exclude indexing at document level */
+                        //runDemo1().Wait();
+                    
+                    /* Manual indexing at collection level */
+                        runDemo2().Wait();
             }
         }
 #region Data_Import_Scenarios
@@ -149,7 +160,7 @@ namespace dotnetDocumentdb
 
 #endregion Data_Import_Scenarios
 
-        #region Data_Manipulation
+#region Data_Manipulation
 
         /*
             Simple stored procedure query
@@ -302,6 +313,90 @@ namespace dotnetDocumentdb
                 await client.DeleteTriggerAsync(trigger.SelfLink);
             }
         }
-        #endregion Data_Manipulation
+#endregion Data_Manipulation
+
+#region Indexing 
+
+    /* Exclude indexing at document level */
+    private static async Task runDemo1() 
+    {
+        var database = await client.CreateDatabaseIfNotExistsAsync( 
+                                    new Database { Id = databaseId } );
+
+        var collection = await client.CreateDocumentCollectionAsync(
+                            UriFactory.CreateDatabaseUri(databaseId),
+                            new DocumentCollection { Id = collectionId } );
+        
+        await noIndexAtDocumentLevel(database.Resource, collection.Resource);
+    }
+
+    private static async Task noIndexAtDocumentLevel(Database database, DocumentCollection collection)
+    {
+        var collectionUri = UriFactory.CreateDocumentCollectionUri(databaseId, collectionId);
+        var created = await client.CreateDocumentAsync(collectionUri, 
+                                        new { id = "123", name= "Xavi Giménez", company= "Xavi"}, 
+                                        new RequestOptions { IndexingDirective = IndexingDirective.Exclude });
+        /*
+            docExists are going to be "false" due to indexes are excluded
+         */
+        var docExists = client.CreateDocumentQuery(
+                            collectionUri,
+                            "Select * from root r where r.company='Xavi'")
+                            .AsEnumerable().Any();
+        
+        Document document = await client.ReadDocumentAsync(created.Resource.SelfLink);
+
+        await client.DeleteDocumentCollectionAsync(collectionUri);
+    }
+
+    /* Manual indexing at collection level */
+    private static async Task runDemo2() 
+    {        
+        await manualIndexAtDocumentLevel();
+    }
+
+    private static async Task manualIndexAtDocumentLevel()
+    {
+        var collectionUrl = UriFactory.CreateDocumentCollectionUri(databaseId, collectionId);
+
+        var collectionSpecifications = new DocumentCollection
+                {
+                    Id = collectionId
+                };
+        collectionSpecifications.IndexingPolicy.Automatic = false;
+
+        var collection = await client.CreateDocumentCollectionIfNotExistsAsync(
+                UriFactory.CreateDatabaseUri(databaseId),
+                collectionSpecifications
+        );
+
+        Document created = await client.CreateDocumentAsync(
+                        collection.Resource.SelfLink,
+                        new { id= "200", name = "Xavi Giménez", company ="Apple"}
+        );
+        
+        /* docExists are going to set to false due to collectionSpecifications.IndexingPolicy.Automatic = false; */
+        bool docExists = client.CreateDocumentQuery(
+            collection.Resource.SelfLink,
+            "Select * from root r where r.company = 'Apple'"
+        ).AsEnumerable().Any();
+
+        Document document = await client.ReadDocumentAsync(created.SelfLink);
+
+        Document manuallyIndexedDocument = await client.CreateDocumentAsync( collection.Resource.SelfLink,
+                            new { id= "100", name = "Xavi2 Giménez", company ="Microsoft"},
+                            new RequestOptions
+                                {
+                                    IndexingDirective = IndexingDirective.Include
+                                });
+        /* docExists are going to set to true due to IndexingDirective = IndexingDirective.Include*/
+        docExists = client.CreateDocumentQuery(
+                    collection.Resource.SelfLink,
+                    "Select * from root r where r.company = 'Microsoft'"
+                ).AsEnumerable().Any();
+
+        await client.DeleteDocumentCollectionAsync(collectionUrl);
+    }
+#endregion Indexing
     }
 }
