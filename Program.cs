@@ -53,7 +53,9 @@ namespace dotnetDocumentdb
                     /* Manual indexing at collection level */
                         //runDemo2().Wait();
                     /* Exclude paths from index */
-                        runDemo3().Wait();
+                        //runDemo3().Wait();
+                    /* Force range scan on a hash index */
+                        runDemo4().Wait();
             }   
         }
 #region Data_Import_Scenarios
@@ -476,6 +478,82 @@ namespace dotnetDocumentdb
         {
             Console.WriteLine(ex.ToString());
         }
+    }
+
+    /* Force range scan on a hash index */
+    private static async Task runDemo4() 
+    {
+        var database = await client.CreateDatabaseIfNotExistsAsync( 
+                                    new Database { Id = databaseId } );
+
+        var collectionUri = UriFactory.CreateDocumentCollectionUri(databaseId, collectionId);
+
+        try  //For demo purposes
+        {
+            await client.DeleteDocumentCollectionAsync(collectionUri);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+        }
+        var collectionDefinition = new DocumentCollection
+                {
+                    Id = collectionId
+                };
+        collectionDefinition.IndexingPolicy.IncludedPaths.Add(
+                new IncludedPath { Path = "/*" });
+        collectionDefinition.IndexingPolicy.ExcludedPaths.Add(
+                new ExcludedPath { Path = "/age/*" });
+        collectionDefinition.IndexingPolicy.ExcludedPaths.Add(
+                new ExcludedPath { Path = "/salary/*" });
+
+        var collection = await client.CreateDocumentCollectionIfNotExistsAsync(
+                    UriFactory.CreateDatabaseUri(databaseId),
+                    collectionDefinition);
+
+        var alison = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "1", employee_name="Alison", age=25, salary= 200000 });
+        
+        var ben = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "2", employee_name="Ben", age=30, salary= 100000 });
+        var krishna = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "3", employee_name="Krishna", age=35, salary= 150000 });
+        var kevin = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "4", employee_name="Kevin", age=40, salary= 300000 });
+        var jacob = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "5", employee_name="Jacob", age=45, salary= 250000 });
+        var sana = await client.CreateDocumentAsync(
+            collection.Resource.SelfLink,
+            new { id = "6", employee_name="Sana", age=50, salary= 50000 });
+
+        try
+        {
+            /* Error An invalid query has been specified with filters against path(s) excluded from indexing */
+        var result = client.CreateDocumentQuery( collection.Resource.SelfLink,
+                    "Select * from root r where r.age > 25").AsEnumerable().Any();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message.ToString());
+        }
+
+        try
+        {
+            /* This is correct due to new FeedOptions { EnableScanInQuery = true }  */
+        var result = client.CreateDocumentQuery( collection.Resource.SelfLink,
+                    "Select * from root r where r.age > 25",
+                    new FeedOptions { EnableScanInQuery = true }).AsEnumerable().Any();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message.ToString());
+        }
+
     }
 #endregion Indexing
     }
