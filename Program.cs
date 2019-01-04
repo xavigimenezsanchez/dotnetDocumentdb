@@ -38,7 +38,9 @@ namespace dotnetDocumentdb
                     /*Import documents with stored procedure */
                         //ImportDocument("Xavi", "Company", @"./Scripts/ImportDocument.js").Wait();
                     /* User-defined functions */
-                        getTotalFunding("TotalFunding", "Xavi", "Company").Wait();
+                        //getTotalFunding("TotalFunding", "Xavi", "Company").Wait();
+                    /* Triggers */
+                        addCreatedData("Xavi", "Company").Wait();
             }
         }
 #region Data_Import_Scenarios
@@ -243,6 +245,61 @@ namespace dotnetDocumentdb
             if (udf != null) 
             {
                 await client.DeleteUserDefinedFunctionAsync(udf.SelfLink);
+            }
+        }
+
+        /* Triggers */
+
+        static async Task addCreatedData(string databaseId, string collectionId)
+        {
+            var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(databaseId, collectionId));
+
+            var collectionLink = collection.Resource.SelfLink;
+
+            string triggerId = "AddCreateDate";
+            string body = File.ReadAllText(@"Scripts\AddCreatedDate.js");
+
+            Trigger trigger = new Trigger
+                                {
+                                    Id = triggerId,
+                                    Body = body,
+                                    TriggerOperation = TriggerOperation.Create,
+                                    TriggerType = TriggerType.Pre
+                                };
+
+            await tryDeleteTrigger(collectionLink, trigger.Id);
+
+            await client.CreateTriggerAsync(collectionLink, trigger);
+
+            var requestOptions = new RequestOptions
+                    {
+                        PreTriggerInclude = new List<string> { triggerId },
+                        PartitionKey = new PartitionKey("Company")
+                    };
+            await client.CreateDocumentAsync(   collectionLink,
+                                                new {
+                                                        id = Guid.NewGuid().ToString(),
+                                                        category_code = "Company",
+                                                        homepage_url ="http//xavi.com",
+                                                        name = "Xavi"
+                                                    },
+                                                requestOptions);
+            var results = client.CreateDocumentQuery<Document>( collectionLink,
+                                                                "Select * from root r where r.category_code ='Company'",
+                                                                new FeedOptions { EnableCrossPartitionQuery = true });
+
+            foreach (var result in results)
+            {
+                Console.WriteLine("{0}", result);
+            }
+        }
+        private static async Task tryDeleteTrigger(string collectionLink, string triggerId)
+        {
+            Trigger trigger = client.CreateTriggerQuery(collectionLink).Where(x => x.Id == triggerId).AsEnumerable().FirstOrDefault();
+
+            if (trigger != null)
+            {
+                await client.DeleteTriggerAsync(trigger.SelfLink);
             }
         }
         #endregion Data_Manipulation
